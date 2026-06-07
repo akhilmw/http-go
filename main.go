@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net"
 
 	//"os"
-	"strings"
+
+	"github.com/akhilmw/http-go/internal/request"
 )
 
-// this returns channel of string
+/** Not needed anymore
 func getLinesChannel(f io.ReadCloser) <-chan string {
 	ch := make(chan string)
 
@@ -67,6 +66,7 @@ func getLinesChannel(f io.ReadCloser) <-chan string {
 	return ch
 
 }
+*/
 
 func main() {
 
@@ -86,9 +86,21 @@ func main() {
 
 		}
 		fmt.Println("Connection Accepted ")
-		for line := range getLinesChannel(conn) {
-			fmt.Printf("read: %s\n", line)
+		// for line := range getLinesChannel(conn) {
+		// 	fmt.Printf("read: %s\n", line)
+		// }
+
+		req, err := request.RequestFromReader(conn)
+		if err != nil {
+			fmt.Println(err)
+			conn.Close()
+			continue
 		}
+
+		fmt.Println("Request line:")
+		fmt.Printf("- Method: %s\n", req.RequestLine.Method)
+		fmt.Printf("- Target: %s\n", req.RequestLine.RequestTarget)
+		fmt.Printf("- Version: %s\n", req.RequestLine.HttpVersion)
 
 		conn.Close()
 

@@ -6,8 +6,18 @@ import (
 	"strings"
 )
 
+const bufferSize = 8
+
+type parserState int
+
+const (
+	initialized parserState = iota
+	done
+)
+
 type Request struct {
 	RequestLine RequestLine
+	state       parserState
 }
 
 type RequestLine struct {
@@ -30,15 +40,44 @@ func isValidMethod(method string) bool {
 	return true
 }
 
-func parseRequestLine(str string) (*RequestLine, error) {
+func (r *Request) parse(data []byte) (int, error) {
+	switch r.state {
+	case initialized:
+		requestLine, consumed, err := parseRequestLine(string(data))
+		if err != nil {
+			return 0, err
+		}
+
+		if consumed == 0 {
+			return 0, nil
+		}
+
+		r.RequestLine = *requestLine
+		r.state = done
+
+		return consumed, nil
+
+	case done:
+		return 0, errors.New("trying to parse in done state")
+
+	default:
+		return 0, errors.New("unknown state")
+	}
+}
+
+func parseRequestLine(str string) (*RequestLine, int, error) {
 	// GET /coffee HTTP/1.1\r\nHost: localhost:42069\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n
 
-	lines := strings.Split(str, "\r\n")
-	requestLine := lines[0]
+	idx := strings.Index(str, "\r\n")
+	if idx == -1 {
+		return nil, 0, nil
+	}
+
+	requestLine := str[:idx]
 
 	parts := strings.Split(requestLine, " ")
 	if len(parts) != 3 {
-		return nil, errors.New("invalid request line")
+		return nil, 0, errors.New("invalid request line")
 	}
 
 	method := parts[0]
@@ -47,37 +86,63 @@ func parseRequestLine(str string) (*RequestLine, error) {
 
 	// check first is a method
 	if !isValidMethod(method) {
-		return nil, errors.New("method not valid")
+		return nil, 0, errors.New("method not valid")
 	}
 
 	if version != "HTTP/1.1" {
-		err := errors.New("Only supports HTTP 1.1")
-		return nil, err
+		err := errors.New("only supports HTTP 1.1")
+		return nil, 0, err
 	}
+
+	bytesConsumed := idx + len("\r\n")
 
 	return &RequestLine{
 		Method:        method,
 		RequestTarget: target,
 		HttpVersion:   "1.1",
-	}, nil
+	}, bytesConsumed, nil
 
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
-	bytes, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
+	buf := make([]byte, bufferSize)
+	readToIndex := 0
+
+	request := Request{
+		state: initialized,
 	}
 
-	str := string(bytes)
+	for request.state != done {
 
-	requestLine, err := parseRequestLine(str)
-	if err != nil {
-		return nil, err
+		if readToIndex == len(buf) {
+			newBuf := make([]byte, len(buf)*2)
+			copy(newBuf, buf)
+			buf = newBuf
+		}
+
+		n, err := reader.Read(buf[readToIndex:])
+		if err != nil {
+			if err == io.EOF {
+				request.state = done
+				break
+			}
+			return nil, err
+		}
+
+		readToIndex += n
+		consumed, err := request.parse(buf[:readToIndex])
+		if err != nil {
+			return nil, err
+		}
+
+		if consumed > 0 {
+			copy(buf, buf[consumed:readToIndex])
+			readToIndex -= consumed
+		}
+
 	}
 
-	request := Request{RequestLine: *requestLine}
 	return &request, nil
 
 }

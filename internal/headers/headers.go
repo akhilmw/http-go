@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"strings"
+	"unicode"
 )
 
 type Headers map[string]string
@@ -34,14 +35,23 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	rawKey := parts[0]
 	rawValue := parts[1]
 
+	for _, c := range rawKey {
+		if !(unicode.IsLetter(c) ||
+			unicode.IsDigit(c) ||
+			strings.ContainsRune("!#$%&'*+-.^_`|~", c)) {
+			return 0, false, errors.New("invalid header")
+		}
+	}
+
 	// No spaces allowed before the colon or before the field name
 	if rawKey != strings.TrimSpace(rawKey) {
 		return 0, false, errors.New("invalid header")
 	}
 
+	key := strings.ToLower(rawKey)
 	value := strings.TrimSpace(rawValue)
 
-	h[rawKey] = value
+	h[key] = value
 
 	return idx + 2, false, nil
 

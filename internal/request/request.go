@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 	"strings"
+
+	"github.com/akhilmw/http-go/internal/headers"
 )
 
 const bufferSize = 8
@@ -12,11 +14,13 @@ type parserState int
 
 const (
 	initialized parserState = iota
+	parsingHeaders
 	done
 )
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	state       parserState
 }
 
@@ -41,6 +45,25 @@ func isValidMethod(method string) bool {
 }
 
 func (r *Request) parse(data []byte) (int, error) {
+	totalBytesParsed := 0
+
+	for r.state != done {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+
+		if n == 0 {
+			break
+		}
+
+		totalBytesParsed += n
+	}
+
+	return totalBytesParsed, nil
+}
+
+func (r *Request) parseSingle(data []byte) (int, error) {
 	switch r.state {
 	case initialized:
 		requestLine, consumed, err := parseRequestLine(string(data))
@@ -53,9 +76,25 @@ func (r *Request) parse(data []byte) (int, error) {
 		}
 
 		r.RequestLine = *requestLine
-		r.state = done
+		r.state = parsingHeaders
 
 		return consumed, nil
+
+	case parsingHeaders:
+		n, headersDone, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, err
+		}
+
+		if n == 0 {
+			return 0, nil
+		}
+
+		if headersDone {
+			r.state = done
+		}
+
+		return n, nil
 
 	case done:
 		return 0, errors.New("trying to parse in done state")
@@ -109,8 +148,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	buf := make([]byte, bufferSize)
 	readToIndex := 0
 
-	request := Request{
-		state: initialized,
+	request := &Request{
+		state:   initialized,
+		Headers: headers.NewHeaders(),
 	}
 
 	for request.state != done {
@@ -124,7 +164,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		n, err := reader.Read(buf[readToIndex:])
 		if err != nil {
 			if err == io.EOF {
-				request.state = done
+				if request.state != done {
+					return nil, errors.New("incomplete request")
+				}
 				break
 			}
 			return nil, err
@@ -143,6 +185,6 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	}
 
-	return &request, nil
+	return request, nil
 
 }

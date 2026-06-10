@@ -51,7 +51,11 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	key := strings.ToLower(rawKey)
 	value := strings.TrimSpace(rawValue)
 
-	h[key] = value
+	if oldValue, ok := h[key]; ok {
+		h[key] = oldValue + ", " + value
+	} else {
+		h[key] = value
+	}
 
 	return idx + 2, false, nil
 

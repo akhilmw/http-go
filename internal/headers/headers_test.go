@@ -114,4 +114,38 @@ func TestParseHeaders(t *testing.T) {
 		assert.Equal(t, 0, n)
 		assert.False(t, done)
 	})
+
+	t.Run("Valid duplicate header values", func(t *testing.T) {
+		headers := NewHeaders()
+		headers["set-person"] = "lane-loves-go"
+
+		data := []byte("Set-Person: prime-loves-zig\r\n\r\n")
+
+		n, done, err := headers.Parse(data)
+
+		require.NoError(t, err)
+		assert.Equal(t,
+			"lane-loves-go, prime-loves-zig",
+			headers["set-person"],
+		)
+		assert.Equal(t, len("Set-Person: prime-loves-zig\r\n"), n)
+		assert.False(t, done)
+	})
+
+	t.Run("Valid multiple duplicate header values", func(t *testing.T) {
+		headers := NewHeaders()
+		headers["set-person"] = "lane-loves-go, prime-loves-zig"
+
+		data := []byte("Set-Person: tj-loves-ocaml\r\n\r\n")
+
+		n, done, err := headers.Parse(data)
+
+		require.NoError(t, err)
+		assert.Equal(t,
+			"lane-loves-go, prime-loves-zig, tj-loves-ocaml",
+			headers["set-person"],
+		)
+		assert.Equal(t, len("Set-Person: tj-loves-ocaml\r\n"), n)
+		assert.False(t, done)
+	})
 }

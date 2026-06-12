@@ -3,6 +3,7 @@ package request
 import (
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/akhilmw/http-go/internal/headers"
@@ -15,12 +16,14 @@ type parserState int
 const (
 	initialized parserState = iota
 	parsingHeaders
+	parsingBody
 	done
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	state       parserState
 }
 
@@ -91,10 +94,36 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 
 		if headersDone {
-			r.state = done
+			r.state = parsingBody
 		}
 
 		return n, nil
+	case parsingBody:
+		contentLengthStr := r.Headers.Get("Content-Length")
+
+		// No body to parse
+		if contentLengthStr == "" {
+			r.state = done
+			return 0, nil
+		}
+
+		contentLength, err := strconv.Atoi(contentLengthStr)
+		if err != nil {
+			return 0, err
+		}
+
+		// Consume everything we were given
+		r.Body = append(r.Body, data...)
+
+		if len(r.Body) > contentLength {
+			return 0, errors.New("body exceeds content length")
+		}
+
+		if len(r.Body) == contentLength {
+			r.state = done
+		}
+
+		return len(data), nil
 
 	case done:
 		return 0, errors.New("trying to parse in done state")

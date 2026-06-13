@@ -5,10 +5,31 @@ import (
 	"io"
 
 	"github.com/akhilmw/http-go/internal/headers"
-	
 )
 
 type StatusCode int
+
+type Writer struct {
+	writer io.Writer
+}
+
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{
+		writer: w,
+	}
+}
+
+func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
+	return WriteStatusLine(w.writer, statusCode)
+}
+
+func (w *Writer) WriteHeaders(headers headers.Headers) error {
+	return WriteHeaders(w.writer, headers)
+}
+
+func (w *Writer) WriteBody(p []byte) (int, error) {
+	return w.writer.Write(p)
+}
 
 const (
 	StatusOK                  StatusCode = 200

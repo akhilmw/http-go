@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -18,7 +17,7 @@ type Server struct {
 	handler  Handler
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writer, req *request.Request)
 
 type HandlerError struct {
 	StatusCode response.StatusCode
@@ -77,25 +76,20 @@ func (s *Server) handle(conn net.Conn) {
 
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		writeHandlerError(conn, &HandlerError{
-			StatusCode: response.StatusBadRequest,
-			Message:    "Bad Request\n",
-		})
+		w := response.NewWriter(conn)
+		body := []byte(err.Error())
+
+		w.WriteStatusLine(response.StatusBadRequest)
+
+		headers := response.GetDefaultHeaders(len(body))
+		headers.Set("Content-Type", "text/plain")
+
+		w.WriteHeaders(headers)
+		w.WriteBody(body)
 		return
 	}
 
-	var buf bytes.Buffer
+	w := response.NewWriter(conn)
+	s.handler(w, req)
 
-	handlerErr := s.handler(&buf, req)
-	if handlerErr != nil {
-		writeHandlerError(conn, handlerErr)
-		return
-	}
-
-	body := buf.Bytes()
-
-	response.WriteStatusLine(conn, response.StatusOK)
-	headers := response.GetDefaultHeaders(len(body))
-	response.WriteHeaders(conn, headers)
-	conn.Write(body)
 }

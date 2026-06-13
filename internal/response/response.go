@@ -37,6 +37,33 @@ const (
 	StatusInternalServerError StatusCode = 500
 )
 
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	chunkHeader := fmt.Sprintf("%X\r\n", len(p))
+
+	if _, err := w.writer.Write([]byte(chunkHeader)); err != nil {
+		return 0, err
+	}
+
+	n, err := w.writer.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	if _, err := w.writer.Write([]byte("\r\n")); err != nil {
+		return n, err
+	}
+
+	return n, nil
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	return w.writer.Write([]byte("0\r\n"))
+}
+
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+	return WriteHeaders(w.writer, h)
+}
+
 func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 
 	reasonPhrase := ""

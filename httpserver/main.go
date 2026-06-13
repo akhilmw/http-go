@@ -1,11 +1,17 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/akhilmw/http-go/internal/headers"
 	"github.com/akhilmw/http-go/internal/request"
 	"github.com/akhilmw/http-go/internal/response"
 	"github.com/akhilmw/http-go/internal/server"
@@ -14,6 +20,69 @@ import (
 const port = 42069
 
 func handler(w *response.Writer, req *request.Request) {
+
+	if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin/") {
+		path := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin")
+		url := "https://httpbin.org" + path
+
+		resp, err := http.Get(url)
+		if err != nil {
+			body := []byte("failed to fetch httpbin\n")
+
+			w.WriteStatusLine(response.StatusInternalServerError)
+
+			responseHeaders := response.GetDefaultHeaders(len(body))
+			responseHeaders.Set("Content-Type", "text/plain")
+
+			w.WriteHeaders(responseHeaders)
+			w.WriteBody(body)
+			return
+		}
+		defer resp.Body.Close()
+
+		w.WriteStatusLine(response.StatusOK)
+
+		responseHeaders := response.GetDefaultHeaders(0)
+		responseHeaders.Del("Content-Length")
+		responseHeaders.Set("Transfer-Encoding", "chunked")
+		responseHeaders.Set("Trailer", "X-Content-SHA256, X-Content-Length")
+		responseHeaders.Set("Content-Type", "text/plain")
+
+		w.WriteHeaders(responseHeaders)
+
+		buf := make([]byte, 1024)
+		var fullBody []byte
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				chunk := buf[:n]
+
+				fullBody = append(fullBody, chunk...)
+
+				if _, writeErr := w.WriteChunkedBody(chunk); writeErr != nil {
+					return
+				}
+			}
+
+			if err == io.EOF {
+				break
+			}
+
+			if err != nil {
+				return
+			}
+		}
+		hash := sha256.Sum256(fullBody)
+
+		trailers := headers.NewHeaders()
+		trailers.Set("X-Content-SHA256", fmt.Sprintf("%x", hash))
+		trailers.Set("X-Content-Length", fmt.Sprint(len(fullBody)))
+
+		w.WriteChunkedBodyDone()
+		w.WriteTrailers(trailers)
+		return
+	}
+
 	var statusCode response.StatusCode
 	var body []byte
 
